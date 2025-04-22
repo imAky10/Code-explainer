@@ -81,7 +81,7 @@ export default function Home() {
       return;
     }
     setIsLoading(true);
-    setExplanation('Generating explanation...');
+    setExplanation(''); // Clear previous explanation before starting stream
 
     try {
       const response = await fetch('/api/analyze', {
@@ -101,11 +101,25 @@ export default function Home() {
         throw new Error(errorMsg);
       }
 
-      const data = await response.json();
-      setExplanation(data.explanation || 'No explanation received.');
+      // --- Stream Handling ---
+      if (!response.body) {
+        throw new Error("Response body is null");
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        const chunkValue = decoder.decode(value, { stream: true }); // stream: true handles multi-byte chars potentially split across chunks
+        setExplanation((prev) => prev + chunkValue);
+      }
+      // --- End Stream Handling ---
 
     } catch (error) {
-      console.error("Analysis error:", error.message);
+      // Log the full error for debugging
+      console.error("Analysis error:", error);
       const displayError = `Error: ${error.message || 'An unknown error occurred during analysis.'}`;
       setExplanation(displayError);
     } finally {

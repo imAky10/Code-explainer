@@ -1,5 +1,6 @@
 // code-explainer/src/app/api/analyze/route.js
 import { NextResponse } from 'next/server';
+import { StreamingTextResponse, LangChainStream } from 'ai'; // Import StreamingTextResponse
 
 // Define OpenRouter API details
 const OPENROUTER_API_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
@@ -116,61 +117,57 @@ ${explanationInstructions}
         ],
         max_tokens: detailLevel === 'summary' ? 1000 : 10000, // Adjusted max_tokens based on detail level
         temperature: 0.5,
+        stream: true, // Request streaming response
       }),
     });
 
-    // Handle specific API response errors for the main analysis call
+    // Handle specific API response errors before attempting to stream
     if (!apiResponse.ok) {
-      let errorMsg = `API request failed with status ${apiResponse.status}: ${apiResponse.statusText}`;
-      try {
-        const errorBody = await apiResponse.json(); // Try parsing JSON error from OpenRouter/Model
-        console.error("OpenRouter API Error Body:", errorBody);
-        // Customize message based on common status codes
-        if (apiResponse.status === 400) {
-            errorMsg = "The request was malformed. Please check the input code or language.";
-        } else if (apiResponse.status === 401) {
-            errorMsg = "Authentication failed. Please check the API Key.";
-        } else if (apiResponse.status === 429) {
-            errorMsg = "API rate limit exceeded or quota finished. Please try again later or check your plan.";
-        } else if (apiResponse.status >= 500) {
-            errorMsg = "The AI service encountered an internal error. Please try again later.";
-        } else {
-             errorMsg = errorBody?.error?.message || errorMsg; // Use message from body if available
+        let errorMsg = `API request failed with status ${apiResponse.status}: ${apiResponse.statusText}`;
+        try {
+            const errorBody = await apiResponse.json(); // Try parsing JSON error from OpenRouter/Model
+            console.error("OpenRouter API Error Body:", errorBody);
+            // Customize message based on common status codes
+            if (apiResponse.status === 400) {
+                errorMsg = "The request was malformed. Please check the input code or language.";
+            } else if (apiResponse.status === 401) {
+                errorMsg = "Authentication failed. Please check the API Key.";
+            } else if (apiResponse.status === 429) {
+                errorMsg = "API rate limit exceeded or quota finished. Please try again later or check your plan.";
+            } else if (apiResponse.status >= 500) {
+                errorMsg = "The AI service encountered an internal error. Please try again later.";
+            } else {
+                 errorMsg = errorBody?.error?.message || errorMsg; // Use message from body if available
+            }
+        } catch (parseError) {
+            // If error body isn't JSON, use the status text
+            console.error("Could not parse error body as JSON:", parseError);
         }
-      } catch (parseError) {
-        // If error body isn't JSON, use the status text
-        console.error("Could not parse error body as JSON:", parseError);
-      }
-      console.error("OpenRouter API Error:", errorMsg);
-      // Throw specific error message to be caught below
-      throw new Error(errorMsg);
+        console.error("OpenRouter API Error:", errorMsg);
+        // Throw specific error message to be caught below
+        throw new Error(errorMsg);
     }
 
-    const result = await apiResponse.json();
-    let text = ""; // Default to empty string
+    // --- Streaming Response ---
+    // Use the Vercel AI SDK helper to create a stream from the API response
+    // Note: OpenRouter's streaming format might differ slightly.
+    // The 'ai' package often expects OpenAI's format. If this doesn't work directly,
+    // manual stream processing might be needed, but let's try the helper first.
 
-    if (result.choices && result.choices.length > 0 && result.choices[0].message?.content) {
-      text = result.choices[0].message.content;
-    } else {
-      console.warn("Could not extract content from OpenRouter response:", result);
+    // Assuming OpenRouter stream format is compatible with OpenAI's format for the SDK
+    const stream = apiResponse.body; // Get the ReadableStream directly
+
+    if (!stream) {
+        throw new Error("API response body is null.");
     }
 
-    // Simplified parsing: Assume the entire response content is the explanation
-    let explanation = text.trim();
-    // Optional: Remove potential leading "**Explanation:**" if the model adds it redundantly
-    explanation = explanation.replace(/^\*\*Explanation:\*\*\s*/, '').trim();
-
-    if (!explanation) {
-        explanation = "Could not generate explanation."; // Provide a default message if empty
-        console.warn("Generated explanation was empty.");
-    }
-
-
-    // Return only the explanation
-    return NextResponse.json({ explanation });
+    // Return the stream directly to the client
+    return new StreamingTextResponse(stream);
+    // --- End Streaming Response ---
 
   } catch (error) {
-    console.error("Error in /api/analyze:", error.message);
+    // Log the full error for server-side debugging
+    console.error("Error in /api/analyze:", error);
     // Return the specific error message caught from the try block or a generic one
     const clientErrorMessage = error instanceof Error ? error.message : 'An unexpected error occurred during analysis.';
     // Determine appropriate status code (default to 500)
