@@ -1,6 +1,5 @@
 // code-explainer/src/app/api/analyze/route.js
 import { NextResponse } from 'next/server';
-import { StreamingTextResponse, LangChainStream } from 'ai'; // Import StreamingTextResponse
 
 // Define OpenRouter API details
 const OPENROUTER_API_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
@@ -148,22 +147,21 @@ ${explanationInstructions}
         throw new Error(errorMsg);
     }
 
-    // --- Streaming Response ---
-    // Use the Vercel AI SDK helper to create a stream from the API response
-    // Note: OpenRouter's streaming format might differ slightly.
-    // The 'ai' package often expects OpenAI's format. If this doesn't work directly,
-    // manual stream processing might be needed, but let's try the helper first.
 
-    // Assuming OpenRouter stream format is compatible with OpenAI's format for the SDK
-    const stream = apiResponse.body; // Get the ReadableStream directly
+    // --- Manual Streaming Response ---
+    const encoder = new TextEncoder();
+    const transformStream = new TransformStream({
+        transform(chunk, controller) {
+            controller.enqueue(encoder.encode(chunk));
+        },
+    });
+    const readableStream = apiResponse.body.pipeThrough(transformStream);
 
-    if (!stream) {
-        throw new Error("API response body is null.");
-    }
+    return new NextResponse(readableStream, {
+        headers: { 'Content-Type': 'text/event-stream' },
+    });
+    // --- End Manual Streaming Response ---
 
-    // Return the stream directly to the client
-    return new StreamingTextResponse(stream);
-    // --- End Streaming Response ---
 
   } catch (error) {
     // Log the full error for server-side debugging
