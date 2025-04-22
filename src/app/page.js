@@ -81,12 +81,15 @@ export default function Home() {
       return;
     }
     setIsLoading(true);
-    setExplanation(''); // Clear previous explanation before starting stream
+    setExplanation(''); // Clear previous explanation
 
     try {
       const response = await fetch('/api/analyze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream', // Expect SSE
+        },
         body: JSON.stringify({ code, language, detailLevel, languageManuallySelected: userManuallySelectedLanguage }),
       });
 
@@ -101,25 +104,39 @@ export default function Home() {
         throw new Error(errorMsg);
       }
 
-      // --- Stream Handling ---
-      if (!response.body) {
-        throw new Error("Response body is null");
-      }
+
+      // --- SSE Stream handling ---
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let done = false;
+      let partialLine = ""; // To accumulate partial lines
 
-      while (!done) {
-        const { value, done: doneReading } = await reader.read();
-        done = doneReading;
-        const chunkValue = decoder.decode(value, { stream: true }); // stream: true handles multi-byte chars potentially split across chunks
-        setExplanation((prev) => prev + chunkValue);
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+        const chunk = decoder.decode(value);
+        partialLine += chunk;
+
+        // Process complete lines
+        let lines = partialLine.split('\n');
+        partialLine = lines.pop() || ""; // The last item might be a partial line
+
+        for (const line of lines) {
+          if (line.startsWith("data:")) {
+            const data = line.substring(5).trim(); // Remove "data:" and trim
+            if (data) {
+              setExplanation((prevExplanation) => prevExplanation + data);
+            }
+          }
+          // Ignore other SSE event types for now (e.g., "event:", "id:")
+        }
       }
-      // --- End Stream Handling ---
+      // --- End SSE Stream handling ---
+
 
     } catch (error) {
-      // Log the full error for debugging
-      console.error("Analysis error:", error);
+      console.error("Analysis error:", error.message);
       const displayError = `Error: ${error.message || 'An unknown error occurred during analysis.'}`;
       setExplanation(displayError);
     } finally {
