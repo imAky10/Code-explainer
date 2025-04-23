@@ -81,14 +81,14 @@ export default function Home() {
       return;
     }
     setIsLoading(true);
-    setExplanation(''); // Clear previous explanation
+    setExplanation('Generating explanation...');
 
     try {
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'text/event-stream', // Expect SSE
+          'Accept': 'application/json', // Expect JSON
         },
         body: JSON.stringify({ code, language, detailLevel, languageManuallySelected: userManuallySelectedLanguage }),
       });
@@ -104,35 +104,9 @@ export default function Home() {
         throw new Error(errorMsg);
       }
 
-
-      // --- SSE Stream handling ---
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let partialLine = ""; // To accumulate partial lines
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) {
-          break;
-        }
-        const chunk = decoder.decode(value);
-        partialLine += chunk;
-
-        // Process complete lines
-        let lines = partialLine.split('\n');
-        partialLine = lines.pop() || ""; // The last item might be a partial line
-
-        for (const line of lines) {
-          if (line.startsWith("data:")) {
-            const data = line.substring(5).trim(); // Remove "data:" and trim
-            if (data) {
-              setExplanation((prevExplanation) => prevExplanation + data);
-            }
-          }
-          // Ignore other SSE event types for now (e.g., "event:", "id:")
-        }
-      }
-      // --- End SSE Stream handling ---
+      // Process standard JSON response
+      const data = await response.json();
+      setExplanation(data.explanation || 'No explanation received.');
 
 
     } catch (error) {
@@ -148,8 +122,8 @@ export default function Home() {
   const detectLanguage = async (currentCode) => {
     if (!currentCode || currentCode.trim().length < 10) {
       setSuggestedLanguage('');
-      setIsDropdownDisabled(false);
-      setUserManuallySelectedLanguage(false);
+      setIsDropdownDisabled(false); // Ensure dropdown is enabled if code is too short
+      setUserManuallySelectedLanguage(false); // Reset flag
       return;
     }
     setIsDetecting(true);

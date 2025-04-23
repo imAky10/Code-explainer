@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 
 // Define OpenRouter API details
 const OPENROUTER_API_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
-const OPENROUTER_MODEL = "google/gemini-2.0-flash-exp:free"; // Using Claude 3 Opus for detection
+const OPENROUTER_MODEL = "google/gemini-2.0-flash-exp:free"; // Using a free model for detection
 
 export async function POST(request) {
   try {
@@ -66,7 +66,7 @@ export async function POST(request) {
     if (detectedLanguage.includes('\n')) {
         detectedLanguage = detectedLanguage.split('\n')[0].trim();
     }
-    const commonLanguages = ["Python", "JavaScript", "Java", "C++", "C#", "Go", "Ruby", "PHP", "Swift", "Kotlin", "TypeScript", "Unknown"];
+    const commonLanguages = ["Python", "JavaScript", "Java", "C++", "C#", "Go", "Ruby", "PHP", "Swift", "Kotlin", "TypeScript", "Rust", "HTML", "Solidity", "Unknown"]; // Added Unknown to supported list
     const foundLang = commonLanguages.find(lang => lang.toLowerCase() === detectedLanguage.toLowerCase());
     detectedLanguage = foundLang || detectedLanguage;
     // --- End of validation/cleanup ---

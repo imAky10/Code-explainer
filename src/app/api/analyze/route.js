@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 // Define OpenRouter API details
 const OPENROUTER_API_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_MODEL_LANGUAGE_MISMATCH = "google/gemini-2.0-flash-exp:free"; // Or your preferred Gemini model on OpenRouter
-const OPENROUTER_MODEL_ANALYSIS = "google/gemini-2.0-flash-thinking-exp:free";
+const OPENROUTER_MODEL_ANALYSIS = "google/gemini-2.0-flash-exp:free"; // Using a free model for analysis
 
 export async function POST(request) {
   try {
@@ -43,11 +43,12 @@ export async function POST(request) {
 
     // --- Condition 3: Pre-analysis Language Mismatch Check (Conditional) ---
     if (languageManuallySelected) {
+      console.log(`User manually selected ${language}, performing pre-analysis language check...`);
       // Use the original language detection prompt for the pre-check
       const languageCheckPrompt = `Identify the primary programming language of the following code snippet. Respond with only the name of the language (e.g., Python, JavaScript, Java). If the language cannot be determined confidently, respond with "Unknown".`;
       const languageCheckMessages = [
           { role: "system", content: languageCheckPrompt },
-          { role: "user", content: `\`\`\`\n${code.substring(0, 1000)}\n\`\`\`` }  
+          { role: "user", content: `\`\`\`\n${code.substring(0, 1000)}\n\`\`\`` }
       ];
 
       const langCheckResponse = await fetch(OPENROUTER_API_ENDPOINT, {
@@ -100,6 +101,8 @@ ${explanationInstructions}
 
     const userPrompt = `Here is the code:\n\`\`\`${language.toLowerCase()}\n${code}\n\`\`\``;
 
+    console.log(`Sending request to OpenRouter for ${language} code analysis (${detailLevel})...`);
+
     const apiResponse = await fetch(OPENROUTER_API_ENDPOINT, {
       method: "POST",
       headers: {
@@ -114,13 +117,13 @@ ${explanationInstructions}
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        max_tokens: detailLevel === 'summary' ? 1000 : 10000, // Adjusted max_tokens based on detail level
+        max_tokens: detailLevel === 'summary' ? 1000 : 5000, // Adjusted max_tokens based on detail level
         temperature: 0.5,
-        stream: true, // Request streaming response
+        // Removed stream: true
       }),
     });
 
-    // Handle specific API response errors before attempting to stream
+    // Handle specific API response errors
     if (!apiResponse.ok) {
         let errorMsg = `API request failed with status ${apiResponse.status}: ${apiResponse.statusText}`;
         try {
@@ -139,7 +142,7 @@ ${explanationInstructions}
                  errorMsg = errorBody?.error?.message || errorMsg; // Use message from body if available
             }
         } catch (parseError) {
-            // If error body isn't JSON, use the status text
+            // If error body isn't JSON, use the text
             console.error("Could not parse error body as JSON:", parseError);
         }
         console.error("OpenRouter API Error:", errorMsg);
@@ -147,20 +150,30 @@ ${explanationInstructions}
         throw new Error(errorMsg);
     }
 
+    // Process the full JSON response
+    const result = await apiResponse.json();
+    let text = ""; // Default to empty string
 
-    // --- Manual Streaming Response ---
-    const encoder = new TextEncoder();
-    const transformStream = new TransformStream({
-        transform(chunk, controller) {
-            controller.enqueue(encoder.encode(chunk));
-        },
-    });
-    const readableStream = apiResponse.body.pipeThrough(transformStream);
+    if (result.choices && result.choices.length > 0 && result.choices[0].message?.content) {
+      text = result.choices[0].message.content;
+    } else {
+      console.warn("Could not extract content from OpenRouter response:", result);
+    }
 
-    return new NextResponse(readableStream, {
-        headers: { 'Content-Type': 'text/event-stream' },
-    });
-    // --- End Manual Streaming Response ---
+    console.log("Received response from OpenRouter.");
+
+    // Simplified parsing: Assume the entire response content is the explanation
+    let explanation = text.trim();
+    // Optional: Remove potential leading "**Explanation:**" if the model adds it redundantly
+    explanation = explanation.replace(/^\*\*Explanation:\*\*\s*/, '').trim();
+
+    if (!explanation) {
+        explanation = "Could not generate explanation."; // Provide a default message if empty
+        console.warn("Generated explanation was empty.");
+    }
+
+    // Return only the explanation as a standard JSON response
+    return NextResponse.json({ explanation });
 
 
   } catch (error) {
